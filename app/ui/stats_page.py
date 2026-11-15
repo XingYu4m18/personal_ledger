@@ -64,6 +64,7 @@ class StatsPage(QWidget):
         super().__init__(parent)
         self.main = None
         self._txns = []
+        self.breakdown_period = None
         self._trend_info = self._trend_annot = None
         root = QVBoxLayout(self)
         root.setContentsMargins(28, 24, 28, 20)
@@ -73,9 +74,6 @@ class StatsPage(QWidget):
         title.setObjectName("pageTitle")
         header.addWidget(title)
         header.addStretch()
-        self.time_btn = QPushButton(icon("calendar"), "全部时间")
-        self.time_btn.clicked.connect(lambda: self.main.choose_period())
-        header.addWidget(self.time_btn)
         root.addLayout(header)
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -105,13 +103,11 @@ class StatsPage(QWidget):
         heading = QLabel("月度支出趋势")
         heading.setObjectName("sectionTitle")
         chart.addWidget(heading)
-        charts = QHBoxLayout()
-        layout.addLayout(charts)
-        charts.addWidget(chart_card, 3)
+        layout.addWidget(chart_card)
         pie_card = QFrame()
         pie_card.setObjectName("card")
         pie_card.setMinimumWidth(200)
-        pie_card.setMaximumWidth(300)
+        pie_card.setMinimumHeight(260)
         pie_layout = QVBoxLayout(pie_card)
         pie_layout.setContentsMargins(10, 14, 10, 8)
         pie_title = QLabel("支出占比")
@@ -119,25 +115,23 @@ class StatsPage(QWidget):
         pie_layout.addWidget(pie_title)
         self.pie_canvas = Chart(ring=True)
         self.pie_canvas.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Expanding)
-        self.pie_canvas.selected.connect(lambda name: self._goto_table("支出", name, self.month_combo.currentData()) if name != "其余分类" else None)
+        self.pie_canvas.selected.connect(lambda name: self._goto_table("支出", name, self.breakdown_period) if name != "其余分类" else None)
         pie_layout.addWidget(self.pie_canvas)
-        charts.addWidget(pie_card, 1)
+
         self.trend_canvas = Chart()
         self.trend_canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.trend_canvas.setMinimumHeight(255)
         chart.addWidget(self.trend_canvas)
         self.trend_canvas.selected.connect(lambda month: self._goto_table("支出", month=month))
         month_bar = QHBoxLayout()
-        month_bar.addWidget(QLabel("占比与排行月份"))
-        self.month_combo = QComboBox()
-        self.month_combo.addItem("全部月份", "")
-        self.month_combo.currentIndexChanged.connect(lambda: self._refresh_breakdown())
-        month_bar.addWidget(self.month_combo)
         month_bar.addStretch()
-        layout.insertLayout(2, month_bar)
+        self.breakdown_button = QPushButton(icon("calendar"), "全部时间")
+        self.breakdown_button.clicked.connect(self._choose_breakdown_period)
+        month_bar.addWidget(self.breakdown_button)
+        layout.addLayout(month_bar)
         self.tables = QGridLayout()
         layout.addLayout(self.tables)
-        self.panels = []
+        self.panels = [pie_card]
         for title, columns in [("分类支出", ["分类", "占比", "金额（元）"]), ("商家消费排行", ["商家", "笔数", "金额（元）"])]:
             panel = QFrame()
             panel.setObjectName("card")
@@ -185,13 +179,13 @@ class StatsPage(QWidget):
     def _goto_table(self, direction, category=None, month=None):
         table = self.main.table_page
         table.clear_filters()
-        table.set_period(self.main.period, self.time_btn.text())
+        table.set_period(None, "全部时间")
         if month:
-            year, number = map(int, month.split("-"))
-            first, last = date(year, number, 1), date(year, number, monthrange(year, number)[1])
-            if self.main.period:
-                first = max(first, self.main.period[0])
-                last = min(last, self.main.period[1])
+            if isinstance(month, tuple):
+                first, last = month
+            else:
+                year, number = map(int, month.split("-"))
+                first, last = date(year, number, 1), date(year, number, monthrange(year, number)[1])
             table.set_period((first, last), f"{first} 至 {last}")
         table.set_external_direction(direction)
         if category:
@@ -199,18 +193,10 @@ class StatsPage(QWidget):
         self.main.nav.setCurrentRow(1)
 
     def _category_clicked(self, row, column):
-        self._goto_table("支出", self.categories.item(row, 0).text(), self.month_combo.currentData())
+        self._goto_table("支出", self.categories.item(row, 0).text(), self.breakdown_period)
 
     def refresh(self, txns):
         self._txns = list(txns)
-        selected = self.month_combo.currentData()
-        self.month_combo.blockSignals(True)
-        self.month_combo.clear()
-        self.month_combo.addItem("全部月份", "")
-        for month in sorted({t.month for t in self._txns if t.time}, reverse=True):
-            self.month_combo.addItem(month, month)
-        self.month_combo.setCurrentIndex(max(0, self.month_combo.findData(selected)))
-        self.month_combo.blockSignals(False)
         expenses = [t for t in txns if t.is_expense]
         incomes = [t for t in txns if t.is_income]
         total = sum(t.net_amount for t in expenses)
@@ -220,9 +206,20 @@ class StatsPage(QWidget):
         self._draw_trend([t for t in expenses if t.time])
         self._refresh_breakdown()
 
+    def _choose_breakdown_period(self):
+        from .date_range import DateRangeDialog
+        from PySide6.QtWidgets import QDialog
+        anchor = max((t.time.date() for t in self._txns if t.time), default=date.today())
+        dialog = DateRangeDialog(self.breakdown_period, anchor, self)
+        if dialog.exec() == QDialog.Accepted:
+            self.breakdown_period = dialog.period
+            label = "全部时间" if not dialog.period else f"{dialog.period[0]} 至 {dialog.period[1]}"
+            self.breakdown_button.setText(label)
+            self._refresh_breakdown()
+
     def _refresh_breakdown(self):
-        month = self.month_combo.currentData()
-        expenses = [t for t in self._txns if t.is_expense and (not month or t.month == month)]
+        month = self.breakdown_period
+        expenses = [t for t in self._txns if t.is_expense and (not month or (t.time and month[0] <= t.time.date() <= month[1]))]
         total = sum(t.net_amount for t in expenses)
         groups = expense_totals(expenses, lambda t: t.category_display)
         self.categories.setRowCount(len(groups))

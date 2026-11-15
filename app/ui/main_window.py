@@ -180,7 +180,7 @@ class MainWindow(QMainWindow):
         elif row == 2:
             self.rules_page.refresh()
         elif row == 3:
-            self.stats_page.refresh(in_period(self.transactions, self.period))
+            self.stats_page.refresh(self.transactions)
         elif row == 0:
             self.import_page.refresh_summary(summary_stats(self.transactions))
 
@@ -201,9 +201,8 @@ class MainWindow(QMainWindow):
     def set_period(self, period):
         self.period = period
         label = "全部时间" if not period else f"{period[0]} 至 {period[1]}"
-        self.stats_page.time_btn.setText(label)
         self.table_page.set_period(period, label)
-        self.stats_page.refresh(in_period(self.transactions, period))
+        self.stats_page.refresh(self.transactions)
 
     def reclassify(self) -> bool:
         """重新加载规则引擎并对全部交易分类。"""
@@ -242,7 +241,7 @@ class MainWindow(QMainWindow):
 
     def _refresh_pages(self) -> None:
         self.table_page.refresh(self.transactions)
-        self.stats_page.refresh(in_period(self.transactions, self.period))
+        self.stats_page.refresh(self.transactions)
         self.import_page.refresh_summary(summary_stats(self.transactions))
 
     def _on_data_changed(self) -> None:

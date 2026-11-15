@@ -1,5 +1,5 @@
 """表格列宽始终合计为可用宽度，内部边界由用户拖动。"""
-from PySide6.QtCore import QObject, QEvent, Qt, QSettings
+from PySide6.QtCore import QObject, QEvent, Qt, QSettings, QItemSelection, QItemSelectionModel
 from PySide6.QtWidgets import QHeaderView, QPushButton, QMenu, QStyledItemDelegate, QStyle, QAbstractItemView
 from ..database import default_path
 
@@ -8,6 +8,84 @@ class RowDelegate(QStyledItemDelegate):
     def paint(self, painter, option, index):
         option.state &= ~QStyle.State_HasFocus
         super().paint(painter, option, index)
+        if option.state & QStyle.State_Selected:
+            from PySide6.QtGui import QColor
+            painter.save()
+            painter.setPen(QColor("#287bb5"))
+            rect = option.rect
+            painter.drawLine(rect.topLeft(), rect.topRight())
+            painter.drawLine(rect.bottomLeft(), rect.bottomRight())
+            header = self.parent().horizontalHeader()
+            visible = [header.logicalIndex(i) for i in range(header.count())
+                       if not header.isSectionHidden(header.logicalIndex(i))]
+            if visible and index.column() == visible[0]:
+                painter.drawLine(rect.topLeft(), rect.bottomLeft())
+            if visible and index.column() == visible[-1]:
+                painter.drawLine(rect.topRight(), rect.bottomRight())
+            painter.restore()
+
+
+class RowSelection(QObject):
+    """Apply row selection consistently to clicks, modifier clicks and drags."""
+
+    def __init__(self, table):
+        super().__init__(table)
+        self.table = table
+        self.anchor = None
+        self.active = False
+        table.viewport().installEventFilter(self)
+
+    def eventFilter(self, obj, event):
+        kind = event.type()
+        if kind == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
+            index = self.table.indexAt(event.position().toPoint())
+            if not index.isValid():
+                return False
+            self.active = True
+            self.start = index.row()
+            selection = self.table.selectionModel()
+            self.base = {i.row() for i in selection.selectedRows()}
+            self.control = bool(event.modifiers() & Qt.ControlModifier)
+            if event.modifiers() & Qt.ShiftModifier and self.anchor is not None:
+                self.start = self.anchor
+            else:
+                self.anchor = self.start
+            self.removing = self.control and index.row() in self.base
+            self.apply(index)
+            # Preserve native checkbox toggling without letting the view reset selection.
+            if index.flags() & Qt.ItemIsUserCheckable:
+                from PySide6.QtWidgets import QStyleOptionViewItem
+                option = QStyleOptionViewItem()
+                self.table.itemDelegate().initStyleOption(option, index)
+                option.rect = self.table.visualRect(index)
+                indicator = self.table.style().subElementRect(QStyle.SE_ItemViewItemCheckIndicator, option, self.table)
+                if indicator.contains(event.position().toPoint()):
+                    state = index.data(Qt.CheckStateRole)
+                    checked = state == Qt.Checked or state == Qt.Checked.value
+                    self.table.model().setData(index, Qt.Unchecked if checked else Qt.Checked, Qt.CheckStateRole)
+            return True
+        if kind == QEvent.MouseMove and self.active:
+            index = self.table.indexAt(event.position().toPoint())
+            if index.isValid():
+                self.apply(index)
+                self.table.scrollTo(index)
+            return True
+        if kind == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton and self.active:
+            self.active = False
+            return True
+        return False
+
+    def apply(self, index):
+        rows = set(range(min(self.start, index.row()), max(self.start, index.row()) + 1))
+        if self.control:
+            rows = self.base - rows if self.removing else self.base | rows
+        model = self.table.model()
+        selected = QItemSelection()
+        for row in sorted(rows):
+            selected.select(model.index(row, 0), model.index(row, model.columnCount() - 1))
+        selection = self.table.selectionModel()
+        selection.select(selected, QItemSelectionModel.ClearAndSelect | QItemSelectionModel.Rows)
+        selection.setCurrentIndex(index, QItemSelectionModel.NoUpdate)
 
 
 def configure_selection(table):
@@ -15,6 +93,7 @@ def configure_selection(table):
     table.setSelectionMode(QAbstractItemView.ExtendedSelection)
     table.setDragEnabled(False)
     table.setItemDelegate(RowDelegate(table))
+    table._row_selection = RowSelection(table)
 
 
 class FittedColumns(QObject):

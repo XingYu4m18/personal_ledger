@@ -216,6 +216,8 @@ class RulesPage(QWidget):
                 key = QShortcut(QKeySequence(shortcut), self.table)
                 key.setContext(Qt.WidgetWithChildrenShortcut)
                 key.activated.connect(slot)
+        self.table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.table.customContextMenuRequested.connect(self._context_menu)
         actions.addStretch()
         layout.addLayout(actions)
         split = QSplitter(Qt.Vertical)
@@ -444,6 +446,22 @@ class RulesPage(QWidget):
         self.main.engine.rules[row] = new_rule
         self._reload_table()
         self._reclassify()
+
+    def _context_menu(self, position):
+        index = self.table.indexAt(position)
+        if index.isValid() and not self.table.selectionModel().isRowSelected(index.row()):
+            self.table.selectRow(index.row())
+        menu = QMenu(self.table)
+        selected = bool(self.table.selectionModel().selectedRows())
+        for label, slot in [
+            ("查看命中", lambda: self._show_matches(self.table.currentRow())),
+            ("上移  Alt+↑", lambda: self._move_rule(-1)),
+            ("下移  Alt+↓", lambda: self._move_rule(1)),
+            ("删除规则  Delete", self._delete_rule),
+        ]:
+            action = menu.addAction(label, slot)
+            action.setEnabled(selected)
+        menu.exec(self.table.viewport().mapToGlobal(position))
 
     def _delete_rule(self) -> None:
         if self.main is None:
