@@ -33,7 +33,6 @@ class RowSelection(QObject):
         self.table = table
         self.anchor = None
         self.active = False
-        self.anchor_base = set()
         self.edge_timer = QTimer(self, interval=45)
         self.edge_timer.timeout.connect(self._scroll_edge)
         table.viewport().installEventFilter(self)
@@ -48,22 +47,17 @@ class RowSelection(QObject):
             self.start = index.row()
             selection = self.table.selectionModel()
             self.base = {i.row() for i in selection.selectedRows()}
-            shift = bool(event.modifiers() & Qt.ShiftModifier)
+            self.shift = bool(event.modifiers() & Qt.ShiftModifier)
             self.control = bool(event.modifiers() & Qt.ControlModifier)
-            if index.column() == 0 and getattr(self.table.model(), "_show_checkbox", False) and not shift:
-                self.control = True
-            if shift and self.anchor is not None and self.anchor < self.table.model().rowCount():
+            self.checkbox_click = index.column() == 0 and getattr(self.table.model(), "_show_checkbox", False)
+            if self.shift and self.anchor is not None and self.anchor < self.table.model().rowCount():
                 self.start = self.anchor
-                self.base = self.anchor_base
-            else:
-                self.anchor = self.start
-                self.anchor_base = self.base.copy() if self.control else set()
-            self.removing = self.control and not shift and index.row() in self.base
+            self.anchor = index.row()
             self.check_index = None
             self.press_point = event.position().toPoint()
             self.apply(index)
             # Preserve native checkbox toggling without letting the view reset selection.
-            if index.flags() & Qt.ItemIsUserCheckable:
+            if not (self.shift or self.control) and index.flags() & Qt.ItemIsUserCheckable:
                 from PySide6.QtWidgets import QStyleOptionViewItem
                 option = QStyleOptionViewItem()
                 self.table.itemDelegate().initStyleOption(option, index)
@@ -112,8 +106,10 @@ class RowSelection(QObject):
 
     def apply(self, index):
         rows = set(range(min(self.start, index.row()), max(self.start, index.row()) + 1))
-        if self.control:
-            rows = self.base - rows if self.removing else self.base | rows
+        if self.shift:
+            rows = self.base ^ rows if self.control else rows - self.base
+        elif self.control or (self.checkbox_click and index.row() == self.start):
+            rows = self.base ^ rows
         model = self.table.model()
         selected = QItemSelection()
         for row in sorted(rows):
