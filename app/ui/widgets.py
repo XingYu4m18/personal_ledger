@@ -1,5 +1,5 @@
 """表格列宽始终合计为可用宽度，内部边界由用户拖动。"""
-from PySide6.QtCore import QObject, QEvent, Qt, QSettings, QItemSelection, QItemSelectionModel
+from PySide6.QtCore import QObject, QEvent, QTimer, QPoint, Qt, QSettings, QItemSelection, QItemSelectionModel
 from PySide6.QtWidgets import QHeaderView, QPushButton, QMenu, QStyledItemDelegate, QStyle, QAbstractItemView
 from ..database import default_path
 
@@ -33,6 +33,9 @@ class RowSelection(QObject):
         self.table = table
         self.anchor = None
         self.active = False
+        self.anchor_base = set()
+        self.edge_timer = QTimer(self, interval=45)
+        self.edge_timer.timeout.connect(self._scroll_edge)
         table.viewport().installEventFilter(self)
 
     def eventFilter(self, obj, event):
@@ -45,14 +48,19 @@ class RowSelection(QObject):
             self.start = index.row()
             selection = self.table.selectionModel()
             self.base = {i.row() for i in selection.selectedRows()}
+            shift = bool(event.modifiers() & Qt.ShiftModifier)
             self.control = bool(event.modifiers() & Qt.ControlModifier)
-            if index.column() == 0 and getattr(self.table.model(), "_show_checkbox", False):
-                self.control = not bool(event.modifiers() & Qt.ShiftModifier)
-            if event.modifiers() & Qt.ShiftModifier and self.anchor is not None:
+            if index.column() == 0 and getattr(self.table.model(), "_show_checkbox", False) and not shift:
+                self.control = True
+            if shift and self.anchor is not None and self.anchor < self.table.model().rowCount():
                 self.start = self.anchor
+                self.base = self.anchor_base
             else:
                 self.anchor = self.start
-            self.removing = self.control and index.row() in self.base
+                self.anchor_base = self.base.copy() if self.control else set()
+            self.removing = self.control and not shift and index.row() in self.base
+            self.check_index = None
+            self.press_point = event.position().toPoint()
             self.apply(index)
             # Preserve native checkbox toggling without letting the view reset selection.
             if index.flags() & Qt.ItemIsUserCheckable:
@@ -62,20 +70,45 @@ class RowSelection(QObject):
                 option.rect = self.table.visualRect(index)
                 indicator = self.table.style().subElementRect(QStyle.SE_ItemViewItemCheckIndicator, option, self.table)
                 if indicator.contains(event.position().toPoint()):
-                    state = index.data(Qt.CheckStateRole)
-                    checked = state == Qt.Checked or state == Qt.Checked.value
-                    self.table.model().setData(index, Qt.Unchecked if checked else Qt.Checked, Qt.CheckStateRole)
+                    self.check_index = index
             return True
         if kind == QEvent.MouseMove and self.active:
-            index = self.table.indexAt(event.position().toPoint())
-            if index.isValid():
-                self.apply(index)
-                self.table.scrollTo(index)
+            self.pointer = event.position().toPoint()
+            if (self.pointer - self.press_point).manhattanLength() >= 4:
+                self.check_index = None
+            self._extend_drag()
+            if self.pointer.y() < 0 or self.pointer.y() >= obj.height():
+                self.edge_timer.start()
+            else:
+                self.edge_timer.stop()
             return True
         if kind == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton and self.active:
             self.active = False
+            self.edge_timer.stop()
+            index = self.check_index
+            if index is not None and index == self.table.indexAt(event.position().toPoint()):
+                state = index.data(Qt.CheckStateRole)
+                checked = state in (Qt.Checked, Qt.Checked.value)
+                self.table.model().setData(index, Qt.Unchecked if checked else Qt.Checked, Qt.CheckStateRole)
             return True
         return False
+
+    def _extend_drag(self):
+        view = self.table.viewport()
+        point = QPoint(max(0, min(self.pointer.x(), view.width()-1)),
+                       max(0, min(self.pointer.y(), view.height()-1)))
+        row = self.table.rowAt(point.y())
+        if row < 0:
+            row = self.table.model().rowCount() - 1
+        index = self.table.model().index(row, self.table.horizontalHeader().logicalIndexAt(0))
+        if index.isValid():
+            self.apply(index)
+
+    def _scroll_edge(self):
+        bar = self.table.verticalScrollBar()
+        step = -bar.singleStep() if self.pointer.y() < 0 else bar.singleStep()
+        bar.setValue(bar.value() + step)
+        self._extend_drag()
 
     def apply(self, index):
         rows = set(range(min(self.start, index.row()), max(self.start, index.row()) + 1))
