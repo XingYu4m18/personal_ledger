@@ -46,6 +46,8 @@ class RowSelection(QObject):
             selection = self.table.selectionModel()
             self.base = {i.row() for i in selection.selectedRows()}
             self.control = bool(event.modifiers() & Qt.ControlModifier)
+            if index.column() == 0 and getattr(self.table.model(), "_show_checkbox", False):
+                self.control = not bool(event.modifiers() & Qt.ShiftModifier)
             if event.modifiers() & Qt.ShiftModifier and self.anchor is not None:
                 self.start = self.anchor
             else:

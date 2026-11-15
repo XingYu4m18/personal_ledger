@@ -329,6 +329,14 @@ class TransactionModel(QAbstractTableModel):
     def checked_txns(self) -> List[Transaction]:
         return [t for t in self._rows if id(t) in self._checked]
 
+    def set_checked_rows(self, indexes):
+        checked = {id(self._rows[index.row()]) for index in indexes if index.row() < len(self._rows)}
+        if checked != self._checked:
+            self._checked = checked
+            if self._rows:
+                self.dataChanged.emit(self.index(0, 0), self.index(len(self._rows) - 1, 0), [Qt.CheckStateRole])
+            self.checkedChanged.emit()
+
     def clear_checked(self) -> None:
         self._checked.clear()
         if self._rows:
@@ -533,7 +541,7 @@ class TablePage(QWidget):
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._show_context_menu)
-        self.table.clicked.connect(self._on_cell_clicked)
+        self.table.selectionModel().selectionChanged.connect(self._sync_checked_rows)
         layout.addWidget(self.table, 1)
 
         # 底部信息栏：记录数 + 选中净额 + 自动列宽
@@ -614,12 +622,9 @@ class TablePage(QWidget):
             s += f" · ¥0.00"
         return s
 
-    def _on_cell_clicked(self, index) -> None:
-        """单击复选框列即切换勾选（支持多选）。"""
-        if index.isValid() and index.column() == 0:
-            self.model.toggle_checked_row(index.row())
+    def _sync_checked_rows(self, *_):
+        self.model.set_checked_rows(self.table.selectionModel().selectedRows())
 
-    # ---- 全部时间快捷筛选 ----
     def _show_time_menu(self) -> None:
         self.main.choose_period()
 
@@ -772,6 +777,7 @@ class TablePage(QWidget):
                 t.manual_category = None if category is None else ("" if category == UNCATEGORIZED else category)
                 self.main.engine.classify_one(t)
         self.model.dataChanged.emit(QModelIndex(), QModelIndex())
+        self.table.clearSelection()
         self.model.clear_checked()
         self.model.apply_filter()
         self._update_count()

@@ -179,21 +179,6 @@ QComboBox QAbstractItemView {{
 QCheckBox {{
     spacing: 8px;
 }}
-QCheckBox::indicator {{
-    width: 16px;
-    height: 16px;
-    border-radius: 4px;
-    border: 1px solid {COLOR_BORDER};
-    background-color: {COLOR_CARD2};
-}}
-QCheckBox::indicator:checked {{
-    background-color: {COLOR_ACCENT_DARK};
-    border-color: {COLOR_ACCENT_DARK};
-}}
-QCheckBox::indicator:hover {{
-    border-color: {COLOR_ACCENT};
-}}
-
 /* ---------- 表格 ---------- */
 QTableView {{
     outline: 0;
@@ -404,16 +389,3 @@ def color_for(index: int) -> str:
     return CATEGORY_COLORS[index % len(CATEGORY_COLORS)]
 
 
-QSS += """
-QTableView::indicator {
-    width: 16px;
-    height: 16px;
-    border: 1px solid #94a8b5;
-    border-radius: 3px;
-    background: white;
-}
-QTableView::indicator:checked {
-    background: #287bb5;
-    border: 1px solid #287bb5;
-}
-"""
