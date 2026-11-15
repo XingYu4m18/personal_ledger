@@ -104,7 +104,7 @@ class ImportPage(QWidget):
         self.file_list.setObjectName("fileQueue")
         layout.addWidget(self.file_list, 1)
 
-        self.btn_import = QPushButton(icon("import", "#ffffff"), "导入并分类")
+        self.btn_import = QPushButton(icon("import", "#ffffff"), "预览并分类")
         self.btn_import.setObjectName("primary")
         self.btn_import.setMinimumHeight(40)
         self.btn_import.clicked.connect(self._do_import)

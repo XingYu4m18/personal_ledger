@@ -103,6 +103,22 @@ class RuleEditDialog(QDialog):
         return self.rule
 
 
+def select_month(combo, model, rows):
+    month = combo.currentData()
+    model.set_data([t for t in rows if not month or t.month == month])
+
+
+def update_months(combo, rows):
+    selected = combo.currentData()
+    combo.blockSignals(True)
+    combo.clear()
+    combo.addItem("全部月份", "")
+    for month in sorted({t.month for t in rows if t.time}, reverse=True):
+        combo.addItem(month, month)
+    combo.setCurrentIndex(max(0, combo.findData(selected)))
+    combo.blockSignals(False)
+
+
 class MatchViewDialog(QDialog):
     """展示某条规则实际命中并归类的消费记录明细（字段与账单明细一致，支持点列头排序）。"""
 
@@ -123,7 +139,11 @@ class MatchViewDialog(QDialog):
         lay.addWidget(info)
 
         self.model = TransactionModel()
-        self.model.set_data(matched)
+        month = QComboBox()
+        update_months(month, matched)
+        month.currentIndexChanged.connect(lambda: select_month(month, self.model, matched))
+        lay.addWidget(month)
+        select_month(month, self.model, matched)
 
         table = QTableView()
         table.setModel(self.model)
@@ -281,6 +301,9 @@ class RulesPage(QWidget):
         self.uncat_table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
         self.uncat_table.horizontalHeader().setStretchLastSection(True)
         uncat_head.addWidget(uncat_hint, 1)
+        self.uncat_month = QComboBox()
+        self.uncat_month.currentIndexChanged.connect(self._reload_uncategorized)
+        uncat_head.addWidget(self.uncat_month)
         uncat_head.addWidget(autosize_button(self.uncat_table, profile="uncategorized"))
         uncat_layout.addLayout(uncat_head)
         uncat_layout.addWidget(self.uncat_table, 1)
@@ -352,7 +375,8 @@ class RulesPage(QWidget):
             self.uncat_model.set_data([])
             return
         uncat = [t for t in self.main.transactions if t.is_expense and not t.category]
-        self.uncat_model.set_data(uncat)
+        update_months(self.uncat_month, uncat)
+        select_month(self.uncat_month, self.uncat_model, uncat)
 
     def _reload_table(self) -> None:
         self.table.blockSignals(True)

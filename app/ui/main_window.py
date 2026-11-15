@@ -187,7 +187,15 @@ class MainWindow(QMainWindow):
 
     # ---- 核心数据流 ----
     def import_files(self, paths: List[str]) -> dict | None:
-        self.transactions, messages = import_bills(self.transactions, paths)
+        from copy import deepcopy
+        from .import_preview import ImportPreview
+        keys = set()
+        rows, messages = import_bills(deepcopy(self.transactions), paths, batch_keys=keys)
+        preview = ImportPreview(rows, keys, deepcopy(self.engine.sync_config()), messages, self)
+        if preview.exec() != QDialog.Accepted:
+            return None
+        self.transactions = rows
+        self.load_config(preview.engine.sync_config(), self.config_path)
         if not self.reclassify():
             return None
         self.nav.setCurrentRow(3)  # 跳到统计页查看结果

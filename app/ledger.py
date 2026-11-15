@@ -7,7 +7,7 @@ from .parser import parse_file
 from .storage import merge_transactions
 
 
-def import_bills(existing, paths):
+def import_bills(existing, paths, *, batch_keys=None):
     seen = {unique_key(t): t for t in existing}
     messages = []
     parsed = False
@@ -25,6 +25,8 @@ def import_bills(existing, paths):
         count = 0
         for row in rows:
             key = unique_key(row)
+            if batch_keys is not None:
+                batch_keys.add(key)
             if key not in seen:
                 seen[key] = row
                 count += 1
