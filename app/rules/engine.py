@@ -37,9 +37,9 @@ class RuleEngine:
             txn.category = ""
             return ""
         if txn.manual_category is not None:
-            txn.category = txn.manual_category
+            txn.category = txn.manual_category if txn.manual_category in self.categories else ""
             return txn.category
-        if txn.category and not allow_reclassify:
+        if txn.category in self.categories and not allow_reclassify:
             return txn.category
 
         text_map = {
@@ -51,7 +51,7 @@ class RuleEngine:
 
         # 1. 用户规则（优先级从高到低）
         for r in self._compiled:
-            if not r["enabled"]:
+            if not r["enabled"] or r["category"] not in self.categories:
                 continue
             field = r["match_field"]
             text = text_map.get(field, "")
@@ -62,12 +62,12 @@ class RuleEngine:
                 return r["category"]
 
         # 2. 交易类型映射（微信）
-        if txn.txn_type and txn.txn_type in self.type_mapping:
+        if self.type_mapping.get(txn.txn_type) in self.categories:
             txn.category = self.type_mapping[txn.txn_type]
             return txn.category
 
         # 3. 平台原始分类映射（支付宝）
-        if txn.original_category and txn.original_category in self.platform_category_mapping:
+        if self.platform_category_mapping.get(txn.original_category) in self.categories:
             txn.category = self.platform_category_mapping[txn.original_category]
             return txn.category
 
@@ -94,7 +94,7 @@ class RuleEngine:
             "any": " ".join([txn.counterparty, txn.goods, txn.txn_type]),
         }
         for r in self._compiled:
-            if not r["enabled"]:
+            if not r["enabled"] or r["category"] not in self.categories:
                 continue
             text = text_map.get(r["match_field"], "")
             if not text:

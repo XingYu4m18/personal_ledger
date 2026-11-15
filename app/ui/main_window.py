@@ -66,6 +66,7 @@ class MainWindow(QMainWindow):
             self.load_config(*settings)
         self.config_path = str(self.local_rules)
         apply_transfers(self.transactions, self.config.get("own_cards", []))
+        self.engine.classify_all(self.transactions)
 
     def _write_local_rules(self):
         save_config(self.engine.sync_config(), str(self.local_rules))

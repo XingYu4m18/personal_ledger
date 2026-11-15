@@ -582,7 +582,7 @@ class RulesPage(QWidget):
             self.main.engine.categories.remove(cat)
         self._reload_category_list()
         self._reload_table()
-        self.main.persist()
+        self._reclassify()
 
     # ---- 测试 ----
     def _test(self) -> None:
