@@ -50,7 +50,8 @@ class RowSelection(QObject):
             self.shift = bool(event.modifiers() & Qt.ShiftModifier)
             self.control = bool(event.modifiers() & Qt.ControlModifier)
             self.checkbox_click = index.column() == 0 and getattr(self.table.model(), "_show_checkbox", False)
-            if self.shift and self.anchor is not None and self.anchor < self.table.model().rowCount():
+            self.has_anchor = self.anchor is not None and self.anchor < self.table.model().rowCount()
+            if self.shift and self.has_anchor:
                 self.start = self.anchor
             self.anchor = index.row()
             self.check_index = None
@@ -107,7 +108,12 @@ class RowSelection(QObject):
     def apply(self, index):
         rows = set(range(min(self.start, index.row()), max(self.start, index.row()) + 1))
         if self.shift:
-            rows = self.base ^ rows if self.control else rows - self.base
+            inverted = self.base ^ rows if self.control else rows - self.base
+            if self.has_anchor:
+                inverted.discard(self.start)
+                if self.start in self.base:
+                    inverted.add(self.start)
+            rows = inverted
         elif self.control or (self.checkbox_click and index.row() == self.start):
             rows = self.base ^ rows
         model = self.table.model()
