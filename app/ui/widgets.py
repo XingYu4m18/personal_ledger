@@ -1,13 +1,27 @@
 """表格列宽始终合计为可用宽度，内部边界由用户拖动。"""
 from PySide6.QtCore import QObject, QEvent, Qt, QSettings
-from PySide6.QtWidgets import QHeaderView, QPushButton, QMenu
+from PySide6.QtWidgets import QHeaderView, QPushButton, QMenu, QStyledItemDelegate, QStyle, QAbstractItemView
 from ..database import default_path
+
+
+class RowDelegate(QStyledItemDelegate):
+    def paint(self, painter, option, index):
+        option.state &= ~QStyle.State_HasFocus
+        super().paint(painter, option, index)
+
+
+def configure_selection(table):
+    table.setSelectionBehavior(QAbstractItemView.SelectRows)
+    table.setSelectionMode(QAbstractItemView.ExtendedSelection)
+    table.setDragEnabled(False)
+    table.setItemDelegate(RowDelegate(table))
 
 
 class FittedColumns(QObject):
     def __init__(self, table, profile=None):
         super().__init__(table)
         self.table = table
+        configure_selection(table)
         self.header = table.horizontalHeader()
         self.header.setStretchLastSection(False)
         self.header.setSectionResizeMode(QHeaderView.Interactive)

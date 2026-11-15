@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from .icons import icon
+from PySide6.QtGui import QShortcut, QKeySequence
 
 from typing import List
 
@@ -171,9 +172,6 @@ class RulesPage(QWidget):
         self.test_toggle = QPushButton("测试规则")
         self.test_toggle.setCheckable(True)
         head.addWidget(self.test_toggle)
-        self.more = QPushButton("更多")
-        self.more.setToolTip("对选中的规则执行操作")
-        head.addWidget(self.more)
         add = QPushButton(icon("plus", "#ffffff"), "新增规则")
         add.setObjectName("primary")
         add.clicked.connect(lambda: self._add_rule())
@@ -185,7 +183,7 @@ class RulesPage(QWidget):
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.setToolTip("双击规则可编辑；勾选首列可启用")
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.table.setShowGrid(False)
         self.table.setAlternatingRowColors(True)
         self.table.verticalHeader().setVisible(False)
@@ -203,18 +201,23 @@ class RulesPage(QWidget):
         self.table.setMinimumHeight(86)
         self.table.cellDoubleClicked.connect(lambda row, col: self._edit_rule(row) if col else None)
         self.table.itemChanged.connect(self._on_item_changed)
-        menu = QMenu(self.more)
-        menu.addAction("查看命中", lambda: self._show_matches(self.table.currentRow()))
-        menu.addSeparator()
-        up = menu.addAction("上移", lambda: self._move_rule(-1))
-        down = menu.addAction("下移", lambda: self._move_rule(1))
-        menu.addSeparator()
-        menu.addAction("删除规则", self._delete_rule)
-        menu.aboutToShow.connect(lambda: up.setEnabled(self.table.currentRow() > 0))
-        menu.aboutToShow.connect(lambda: down.setEnabled(self.table.currentRow() < self.table.rowCount() - 1))
-        self.more.setMenu(menu)
-        self.more.setEnabled(False)
-        self.table.itemSelectionChanged.connect(lambda: self.more.setEnabled(bool(self.table.selectedItems())))
+        actions = QHBoxLayout()
+        for label, shortcut, slot in [
+            ("查看命中", None, lambda: self._show_matches(self.table.currentRow())),
+            ("上移", "Alt+Up", lambda: self._move_rule(-1)),
+            ("下移", "Alt+Down", lambda: self._move_rule(1)),
+            ("删除规则", "Delete", self._delete_rule),
+        ]:
+            button = QPushButton(label)
+            button.clicked.connect(slot)
+            actions.addWidget(button)
+            if shortcut:
+                button.setToolTip(shortcut)
+                key = QShortcut(QKeySequence(shortcut), self.table)
+                key.setContext(Qt.WidgetWithChildrenShortcut)
+                key.activated.connect(slot)
+        actions.addStretch()
+        layout.addLayout(actions)
         split = QSplitter(Qt.Vertical)
         split.setChildrenCollapsible(False)
         split.setHandleWidth(8)
@@ -372,7 +375,6 @@ class RulesPage(QWidget):
                 self.table.setItem(i, 6, QTableWidgetItem(r["category"]))
 
         self.table.blockSignals(False)
-        self.more.setEnabled(bool(self.table.selectedItems()))
         self._update_file_label()
 
     def _on_item_changed(self, item: QTableWidgetItem) -> None:
@@ -446,10 +448,11 @@ class RulesPage(QWidget):
     def _delete_rule(self) -> None:
         if self.main is None:
             return
-        row = self.table.currentRow()
-        if row < 0:
+        rows = sorted({index.row() for index in self.table.selectionModel().selectedRows()}, reverse=True)
+        if not rows:
             return
-        self.main.engine.rules.pop(row)
+        for row in rows:
+            self.main.engine.rules.pop(row)
         self._renumber()
         self._reload_table()
         self._reclassify()
@@ -457,15 +460,22 @@ class RulesPage(QWidget):
     def _move_rule(self, direction: int) -> None:
         if self.main is None:
             return
-        row = self.table.currentRow()
-        target = row + direction
-        if row < 0 or target < 0 or target >= len(self.main.engine.rules):
+        rows = sorted(index.row() for index in self.table.selectionModel().selectedRows())
+        if not rows:
             return
         rules = self.main.engine.rules
-        rules[row], rules[target] = rules[target], rules[row]
+        if rows[0] + direction < 0 or rows[-1] + direction >= len(rules):
+            return
+        for row in (rows if direction < 0 else reversed(rows)):
+            target = row + direction
+            rules[row], rules[target] = rules[target], rules[row]
         self._renumber()
         self._reload_table()
-        self.table.setCurrentCell(target, 0)
+        from PySide6.QtCore import QItemSelectionModel
+        selection = self.table.selectionModel()
+        for row in rows:
+            selection.select(self.table.model().index(row + direction, 0),
+                             QItemSelectionModel.Select | QItemSelectionModel.Rows)
         self._reclassify()
 
     def _reclassify(self) -> bool:

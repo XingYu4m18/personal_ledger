@@ -17,7 +17,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFrame, QLabel,
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
-    QPushButton,
+    QPushButton, QComboBox,
 )
 
 from ..models import Transaction
@@ -63,6 +63,7 @@ class StatsPage(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.main = None
+        self._txns = []
         self._trend_info = self._trend_annot = None
         root = QVBoxLayout(self)
         root.setContentsMargins(28, 24, 28, 20)
@@ -118,7 +119,7 @@ class StatsPage(QWidget):
         pie_layout.addWidget(pie_title)
         self.pie_canvas = Chart(ring=True)
         self.pie_canvas.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Expanding)
-        self.pie_canvas.selected.connect(lambda name: self._goto_table("支出", name) if name != "其余分类" else None)
+        self.pie_canvas.selected.connect(lambda name: self._goto_table("支出", name, self.month_combo.currentData()) if name != "其余分类" else None)
         pie_layout.addWidget(self.pie_canvas)
         charts.addWidget(pie_card, 1)
         self.trend_canvas = Chart()
@@ -126,6 +127,14 @@ class StatsPage(QWidget):
         self.trend_canvas.setMinimumHeight(255)
         chart.addWidget(self.trend_canvas)
         self.trend_canvas.selected.connect(lambda month: self._goto_table("支出", month=month))
+        month_bar = QHBoxLayout()
+        month_bar.addWidget(QLabel("占比与排行月份"))
+        self.month_combo = QComboBox()
+        self.month_combo.addItem("全部月份", "")
+        self.month_combo.currentIndexChanged.connect(lambda: self._refresh_breakdown())
+        month_bar.addWidget(self.month_combo)
+        month_bar.addStretch()
+        layout.insertLayout(2, month_bar)
         self.tables = QGridLayout()
         layout.addLayout(self.tables)
         self.panels = []
@@ -190,15 +199,31 @@ class StatsPage(QWidget):
         self.main.nav.setCurrentRow(1)
 
     def _category_clicked(self, row, column):
-        self._goto_table("支出", self.categories.item(row, 0).text())
+        self._goto_table("支出", self.categories.item(row, 0).text(), self.month_combo.currentData())
 
     def refresh(self, txns):
+        self._txns = list(txns)
+        selected = self.month_combo.currentData()
+        self.month_combo.blockSignals(True)
+        self.month_combo.clear()
+        self.month_combo.addItem("全部月份", "")
+        for month in sorted({t.month for t in self._txns if t.time}, reverse=True):
+            self.month_combo.addItem(month, month)
+        self.month_combo.setCurrentIndex(max(0, self.month_combo.findData(selected)))
+        self.month_combo.blockSignals(False)
         expenses = [t for t in txns if t.is_expense]
         incomes = [t for t in txns if t.is_income]
         total = sum(t.net_amount for t in expenses)
         values = [f"¥{total:.2f}", str(len(expenses)), f"¥{sum(t.net_amount for t in incomes):.2f}", str(len(incomes)), str(sum(not t.category for t in expenses))]
         for tile, value in zip(self.tiles, values):
             tile.set_value(value)
+        self._draw_trend([t for t in expenses if t.time])
+        self._refresh_breakdown()
+
+    def _refresh_breakdown(self):
+        month = self.month_combo.currentData()
+        expenses = [t for t in self._txns if t.is_expense and (not month or t.month == month)]
+        total = sum(t.net_amount for t in expenses)
         groups = expense_totals(expenses, lambda t: t.category_display)
         self.categories.setRowCount(len(groups))
         for i, (name, amount) in enumerate(groups.most_common()):
@@ -214,7 +239,6 @@ class StatsPage(QWidget):
             self.categories.setCellWidget(i, 1, bar)
             self.categories.setItem(i, 2, QTableWidgetItem(f"{amount:.2f}"))
         self._draw_categories(groups)
-        self._draw_trend([t for t in expenses if t.time])
         self._fill_merchant(expenses)
 
     def _draw_categories(self, groups):

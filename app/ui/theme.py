@@ -196,6 +196,7 @@ QCheckBox::indicator:hover {{
 
 /* ---------- 表格 ---------- */
 QTableView {{
+    outline: 0;
     background-color: {COLOR_CARD};
     border: 1px solid {COLOR_BORDER};
     border-radius: 0;
@@ -402,3 +403,17 @@ CATEGORY_COLORS = [
 def color_for(index: int) -> str:
     return CATEGORY_COLORS[index % len(CATEGORY_COLORS)]
 
+
+QSS += """
+QTableView::indicator {
+    width: 16px;
+    height: 16px;
+    border: 1px solid #94a8b5;
+    border-radius: 3px;
+    background: white;
+}
+QTableView::indicator:checked {
+    background: #287bb5;
+    border: 1px solid #287bb5;
+}
+"""
